@@ -37,6 +37,11 @@ interface FoundDoc {
   publicationNumber: string;
 }
 
+/** Extract the `_pageLabel` value from a TIS portal URL, or "" if absent. */
+function pageLabelOf(url: string): string {
+  return (url.match(/_pageLabel=([^&]+)/) || [])[1] || "";
+}
+
 /** Pull distinct {objType, publicationNumber} pairs out of result-link hrefs. */
 function parseDocsFromHrefs(hrefs: (string | null)[]): FoundDoc[] {
   const seen = new Map<string, FoundDoc>();
@@ -177,17 +182,29 @@ async function main() {
 
     collect(await docsOnPage(page));
 
-    // Visit every other document-type tab (lib_<type>_page) and scrape it too.
-    const currentUrl = page.url();
+    // Visit every other document-type library tab (lib_<type>_page) and scrape
+    // it too. A heavily-bulletined vehicle (e.g. an older Prius) can expose
+    // hundreds of result links that all share the same handful of tab
+    // pageLabels -- they differ only by pagination / per-document query params.
+    // De-dupe by the `_pageLabel` value, not the full href, keeping one
+    // representative per real tab; visiting every href would open hundreds of
+    // pages and eventually crash the browser.
+    const currentLabel = pageLabelOf(page.url());
     const tabHrefs: string[] = await page
       .$$eval("a[href]", (as) =>
-        as
-          .map((a) => (a as HTMLAnchorElement).href)
+        (as as HTMLAnchorElement[])
+          .map((a) => a.href)
           .filter((h) => /_pageLabel=lib_[a-z]+_page/.test(h))
       )
       .catch(() => []);
-    const uniqueTabs = [...new Set(tabHrefs)].filter((h) => h !== currentUrl);
-    for (const href of uniqueTabs) {
+    const tabByLabel = new Map<string, string>();
+    for (const href of tabHrefs) {
+      const label = pageLabelOf(href);
+      if (label && label !== currentLabel && !tabByLabel.has(label)) {
+        tabByLabel.set(label, href);
+      }
+    }
+    for (const href of tabByLabel.values()) {
       await page.goto(href, { waitUntil: "domcontentloaded" }).catch(() => {});
       await page.waitForTimeout(SETTLE_MS);
       collect(await docsOnPage(page));
