@@ -30,7 +30,10 @@ import { cookieStringFromPlaywright, emitCookie } from "./lib/harCookie";
  */
 
 const LOGIN_URL = `${TIS_ORIGIN}/t3Portal/`;
-const OTP_WAIT_MS = 5 * 60 * 1000;
+// Generous window: when an orchestrator relays the OTP from a human (via
+// --otp-file), the round-trip can take several minutes. Toyota's codes stay
+// valid long enough that erring large here just avoids needless re-sends.
+const OTP_WAIT_MS = 15 * 60 * 1000;
 
 // Settle delays for the various steps of the login/SSO flow. These are the
 // values most likely to need tuning if Toyota changes the login.
