@@ -118,6 +118,12 @@ function typeLabel(type: string): string {
       return "Wiring Diagram (legacy)";
     case "bm":
       return "Body/Collision Manual";
+    case "cr":
+      return "Collision/Body Repair Manual";
+    case "atm":
+      return "Automatic Transmission Manual";
+    case "whr":
+      return "Wire Harness Repair Manual";
     case "ncf":
       return "New Car Features";
     default:
