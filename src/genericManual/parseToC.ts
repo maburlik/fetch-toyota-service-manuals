@@ -186,7 +186,19 @@ function recursivelyAccessObject(
   keys: string[],
   obj: { [any: string]: any }
 ): { [any: string]: string } {
-  if (!obj[keys[0]]) {
+  const existing = obj[keys[0]];
+  if (typeof existing === "string") {
+    // A folder shares a name with an earlier sibling leaf (a distinct page that
+    // happens to share this folder's title). Descending would overwrite/By the
+    // string and throw; instead relocate the leaf under a disambiguated key so
+    // it survives, then create the folder in its place.
+    let moved = `${keys[0]} (page)`;
+    for (let n = 2; moved in obj; n++) {
+      moved = `${keys[0]} (page ${n})`;
+    }
+    obj[moved] = existing;
+    obj[keys[0]] = {};
+  } else if (!existing) {
     obj[keys[0]] = {};
   }
 

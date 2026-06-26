@@ -1,7 +1,7 @@
 import commandLineArgs from "command-line-args";
 import { join, resolve } from "path";
 import { mkdir } from "fs/promises";
-import { collectDocuments, FoundDoc } from "./lookupCodes";
+import { collectDocuments, FoundDoc, MANUAL_OBJ_TYPES } from "./lookupCodes";
 import { resolveCookieString } from "./lib/harCookie";
 import { setCookieStringOnJar } from "../src/api/cookies";
 import { downloadLegacyDocumentPdf } from "../src/legacyManual";
@@ -16,31 +16,16 @@ import { SessionExpiredError } from "../src/api/session";
  * single document served as an xhtml wrapper that redirects to one PDF -- the
  * same mechanism as a legacy manual leaf, but with no ToC. We reuse the catalog
  * scraper from lookupCodes to enumerate them and the legacy PDF fetcher to save
- * each one.
+ * each one. Multi-page manual publications (MANUAL_OBJ_TYPES) are skipped --
+ * fetch those with the main downloader (`yarn start -m <type>:<id>`).
  *
  * Usage:
  *   TIS_COOKIE='...' ts-node tools/downloadDocuments.ts --model Highlander --year 2002
  *   ts-node tools/downloadDocuments.ts --model Highlander --year 2002 --har ~/Downloads/techinfo.har
  *
  * Files are written to `<out>/<objType>/<publicationNumber>.pdf` (default out:
- * ./manuals/_documents). Multi-page manual publications are skipped -- fetch
- * those with the main downloader (`yarn start -m <type>:<id>`).
+ * ./manuals/_documents).
  */
-
-// objTypes that are multi-page manuals (have a toc.xml) rather than single
-// standalone documents. These are downloaded by the main `yarn start` flow, so
-// this tool skips them.
-const MANUAL_OBJ_TYPES = new Set([
-  "rm",
-  "bm",
-  "em",
-  "ewd",
-  "ewdappu",
-  "atm",
-  "cr",
-  "ncf",
-  "whr",
-]);
 
 /** The xhtml wrapper href for a standalone document, relative to the host. */
 function wrapperHref(doc: FoundDoc): string {

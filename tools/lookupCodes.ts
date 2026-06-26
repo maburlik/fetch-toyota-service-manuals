@@ -1,9 +1,7 @@
 import commandLineArgs from "command-line-args";
 import { chromium, Page } from "playwright";
-import {
-  playwrightCookiesFromString,
-  resolveCookieString,
-} from "./lib/harCookie";
+import { resolveCookieString } from "./lib/harCookie";
+import { parseCookieString } from "../src/api/cookies";
 import { TIS_ORIGIN } from "../src/api/client";
 
 /**
@@ -43,6 +41,24 @@ export interface VehicleSelector {
   model: string;
   year: string;
 }
+
+/**
+ * objTypes that are multi-page manuals (each backed by a `toc.xml`) and so are
+ * downloaded by the main `yarn start` flow. Every other objType is a standalone
+ * single-PDF document (TSB, recall, bulletin, …) handled by
+ * `tools/downloadDocuments.ts`. Single source of truth for that split.
+ */
+export const MANUAL_OBJ_TYPES = new Set([
+  "rm",
+  "bm",
+  "em",
+  "ewd",
+  "ewdappu",
+  "atm",
+  "cr",
+  "ncf",
+  "whr",
+]);
 
 /** Extract the `_pageLabel` value from a TIS portal URL, or "" if absent. */
 function pageLabelOf(url: string): string {
@@ -122,6 +138,13 @@ function downloaderFlag(type: string, pub: string, year: string): string {
       return `-m ewd:${pub}`;
     case "bm":
       return upper2 === "BM" ? `-m ${pub}@${year}` : `-m bm:${pub}@${year}`;
+    case "atm":
+    case "cr":
+    case "ncf":
+    case "whr":
+      // Older standalone manual publications: explicit type prefix, no year
+      // filter (they're single-purpose and downloaded in full).
+      return `-m ${type}:${pub}`;
     default:
       return `-m ${pub}`;
   }
@@ -142,7 +165,7 @@ export async function collectDocuments(
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({
     storageState: {
-      cookies: playwrightCookiesFromString(cookieString),
+      cookies: parseCookieString(cookieString),
       origins: [],
     },
   });
@@ -249,17 +272,44 @@ async function main() {
     return;
   }
 
-  const flags: string[] = [];
+  // Manuals (multi-page, fetched by `yarn start`) and standalone documents
+  // (single PDFs, fetched by `yarn download-documents`) need different tools, so
+  // list and summarise them separately.
+  const manualFlags: string[] = [];
+  let bulletinCount = 0;
   for (const [type, set] of [...byType.entries()].sort()) {
+    const isManual = MANUAL_OBJ_TYPES.has(type);
     for (const pub of [...set].sort()) {
-      const flag = downloaderFlag(type, pub, opts.year);
-      flags.push(flag.replace(/^-m /, ""));
-      console.log(`  ${typeLabel(type).padEnd(28)} ${pub.padEnd(12)} ${flag}`);
+      if (isManual) {
+        const flag = downloaderFlag(type, pub, opts.year);
+        manualFlags.push(flag.replace(/^-m /, ""));
+        console.log(
+          `  ${typeLabel(type).padEnd(28)} ${pub.padEnd(14)} ${flag}`
+        );
+      } else {
+        bulletinCount++;
+        console.log(
+          `  ${typeLabel(type).padEnd(28)} ${pub.padEnd(14)} (bulletin)`
+        );
+      }
     }
   }
-  console.log(
-    `\nDownload all:\n  yarn start ${flags.map((f) => `-m ${f}`).join(" ")}`
-  );
+
+  if (manualFlags.length) {
+    console.log(
+      `\nDownload the manuals:\n  yarn start ${manualFlags
+        .map((f) => `-m ${f}`)
+        .join(" ")}`
+    );
+  }
+  if (bulletinCount) {
+    console.log(
+      `\nDownload the ${bulletinCount} standalone document(s) (TSBs, recalls, ` +
+        `bulletins):\n  yarn download-documents --model "${opts.model}" ` +
+        `--year ${opts.year}` +
+        (opts.division !== "TOYOTA" ? ` --division "${opts.division}"` : "")
+    );
+  }
 }
 
 // Only run the CLI when invoked directly (e.g. `ts-node tools/lookupCodes.ts`),

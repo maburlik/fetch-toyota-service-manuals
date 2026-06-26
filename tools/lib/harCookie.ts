@@ -8,23 +8,6 @@ import { TIS_HOST } from "../../src/api/client";
  * (now-unsupported) scripted login.
  */
 
-/** A Playwright storage-state cookie scoped to the TIS host. */
-export interface PlaywrightCookie {
-  name: string;
-  value: string;
-  domain: string;
-  path: string;
-  secure: boolean;
-  sameSite: "None";
-  httpOnly: boolean;
-  expires: number;
-}
-
-/** One day from now, in seconds (Playwright cookie expiry). */
-function oneDayFromNow(): number {
-  return Math.floor(Date.now() / 1000) + 86400;
-}
-
 /**
  * Parse the `techinfo.toyota.com` session cookies out of a browser-exported HAR
  * file (the cookies sent on requests to the TIS host).
@@ -67,31 +50,6 @@ export function cookieStringFromHar(harPath: string): {
     cookieString: names.map((n) => `${n}=${jar[n]}`).join("; "),
     names,
   };
-}
-
-/**
- * Build Playwright storage-state cookies (scoped to the TIS host) from a
- * `name=value; ...` cookie string.
- */
-export function playwrightCookiesFromString(
-  cookieString: string
-): PlaywrightCookie[] {
-  return cookieString
-    .split("; ")
-    .filter(Boolean)
-    .map((c) => {
-      const eq = c.indexOf("=");
-      return {
-        name: c.slice(0, eq),
-        value: c.slice(eq + 1),
-        domain: TIS_HOST,
-        path: "/",
-        secure: true,
-        sameSite: "None",
-        httpOnly: false,
-        expires: oneDayFromNow(),
-      };
-    });
 }
 
 /**

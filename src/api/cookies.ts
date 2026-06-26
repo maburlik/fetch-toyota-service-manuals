@@ -9,19 +9,24 @@ import { jar, TIS_HOST, TIS_ORIGIN } from "./client";
  * the session silently fails.
  */
 export function parseCookieString(cookieString: string): Cookie[] {
-  return cookieString.split("; ").map((c) => {
-    const [name, value] = c.split("=");
-    return {
-      name,
-      value,
-      domain: TIS_HOST,
-      secure: true,
-      sameSite: "None",
-      path: "/",
-      httpOnly: false,
-      expires: dayjs().add(1, "day").unix(),
-    };
-  });
+  return cookieString
+    .split("; ")
+    .filter(Boolean)
+    .map((c) => {
+      // Split on the FIRST "=" only: cookie values can themselves contain "="
+      // (e.g. base64 padding), so a naive split("=") would truncate them.
+      const eq = c.indexOf("=");
+      return {
+        name: c.slice(0, eq),
+        value: c.slice(eq + 1),
+        domain: TIS_HOST,
+        secure: true,
+        sameSite: "None",
+        path: "/",
+        httpOnly: false,
+        expires: dayjs().add(1, "day").unix(),
+      };
+    });
 }
 
 /** Add already-parsed cookies to the shared axios cookie jar. */
