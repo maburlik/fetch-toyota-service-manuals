@@ -8,6 +8,7 @@ import downloadLegacyManual, { isLegacyPdfManual } from "./legacyManual";
 import { fetchAndSaveToc } from "./manual/toc";
 import { chromium, Cookie } from "playwright";
 import { jar, TIS_HOST, TIS_ORIGIN } from "./api/client";
+import { addCookiesToJar, parseCookieString } from "./api/cookies";
 import { SessionExpiredError } from "./api/session";
 import dayjs from "dayjs";
 
@@ -203,32 +204,10 @@ async function run({ manual, email, password, headed, cookieString }: CLIArgs) {
   } else if (cookieString) {
     console.log("Using cookies from command line...");
 
-    // parse cookie string
-    const cookieStrings = cookieString.split("; ");
-    // transform cookie strings into cookie objects
-    transformedCookies = cookieStrings.map((c) => {
-      const [name, value] = c.split("=");
-      return {
-        name,
-        value,
-        domain: TIS_HOST,
-        // for some reason, we have to do this-- otherwise, the iPlanetDirectoryPro
-        // cookie isn't sent, which means that the session isn't working
-        secure: true,
-        sameSite: "None",
-        path: "/",
-        httpOnly: false,
-        expires: dayjs().add(1, "day").unix(),
-      };
-    });
-
-    // add cookies to axios jar
-    transformedCookies.forEach((c) => {
-      jar.setCookieSync(
-        `${c.name}=${c.value}; Domain=${c.domain}; Path=${c.path}; Expires=${c.expires}; Secure; SameSite=None`,
-        `${TIS_ORIGIN}/t3Portal/`
-      );
-    });
+    // Parse the cookie header into Playwright cookies (for the browser context)
+    // and load the same set into the axios jar (for the HTTP downloaders).
+    transformedCookies = parseCookieString(cookieString);
+    addCookiesToJar(transformedCookies);
   } else {
     console.log(
       "No credentials provided. Please provide either a cookie string or email/password."

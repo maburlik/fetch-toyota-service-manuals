@@ -34,6 +34,7 @@
     "start:inspect": "NODE_TLS_REJECT_UNAUTHORIZED=0 node -r ts-node/register --inspect-brk src/index.ts",
     "extract-cookie": "ts-node tools/extractCookie.ts",
     "lookup-codes": "NODE_TLS_REJECT_UNAUTHORIZED=0 ts-node tools/lookupCodes.ts",
+    "download-documents": "NODE_TLS_REJECT_UNAUTHORIZED=0 ts-node tools/downloadDocuments.ts",
     "refresh-session": "NODE_TLS_REJECT_UNAUTHORIZED=0 ts-node tools/refreshSession.ts",
     "format": "prettier --write \"src/**/*.ts\" \"tools/**/*.ts\"",
     "playwright-setup": "playwright install chromium && playwright install-deps chromium",

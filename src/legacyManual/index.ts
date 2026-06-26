@@ -57,6 +57,48 @@ export default async function downloadLegacyManual(
   await recursivelyDownloadLegacyManual(path, toc);
 }
 
+/**
+ * Fetch a single legacy document's xhtml wrapper, follow the PDF link it
+ * contains, and save that PDF to pdfPath. Shared by the legacy-manual
+ * downloader (one call per ToC leaf) and the standalone document downloader
+ * (`tools/downloadDocuments.ts`, one call per TSB/bulletin), which serve PDFs
+ * through the identical wrapper mechanism. The caller owns skip-existing and
+ * logging so it can tally outcomes as it sees fit.
+ *
+ * @returns true if a PDF was saved, false if the wrapper had no PDF link.
+ * @throws {SessionExpiredError} if the wrapper is a session-loss page.
+ */
+export async function downloadLegacyDocumentPdf(
+  wrapperHref: string,
+  pdfPath: string
+): Promise<boolean> {
+  // 1. Fetch the xhtml wrapper to discover the PDF it points to. The wrapper is
+  //    legitimately HTML, so detect session loss with the precise check rather
+  //    than the generic "is this HTML?" one.
+  const wrapper = await client({
+    method: "GET",
+    url: `${TIS_ORIGIN}${wrapperHref}${DOC_SUFFIX}`,
+    responseType: "text",
+  });
+
+  const pdfHref = extractPdfHref(String(wrapper.data));
+  if (!pdfHref) {
+    if (looksLikeSessionLost(String(wrapper.data))) {
+      throw new SessionExpiredError();
+    }
+    return false;
+  }
+
+  // 2. Download the PDF itself.
+  const pdfReq = await client({
+    method: "GET",
+    url: `${TIS_ORIGIN}${pdfHref}${DOC_SUFFIX}`,
+    responseType: "stream",
+  });
+  await saveStream(pdfReq.data, pdfPath);
+  return true;
+}
+
 async function recursivelyDownloadLegacyManual(path: string, toc: ParsedToC) {
   for (const [name, value] of Object.entries(toc)) {
     if (typeof value === "string") {
@@ -69,31 +111,10 @@ async function recursivelyDownloadLegacyManual(path: string, toc: ParsedToC) {
 
       console.log(`Downloading page ${sanitizeName(name)}...`);
       try {
-        // 1. Fetch the xhtml wrapper to discover the PDF it points to. The
-        //    wrapper is legitimately HTML, so detect session loss with the
-        //    precise check rather than the generic "is this HTML?" one.
-        const wrapper = await client({
-          method: "GET",
-          url: `${TIS_ORIGIN}${value}${DOC_SUFFIX}`,
-          responseType: "text",
-        });
-
-        const pdfHref = extractPdfHref(String(wrapper.data));
-        if (!pdfHref) {
-          if (looksLikeSessionLost(String(wrapper.data))) {
-            throw new SessionExpiredError();
-          }
+        const saved = await downloadLegacyDocumentPdf(value, pdfPath);
+        if (!saved) {
           console.error(`No PDF link found for page ${name}, skipping.`);
-          continue;
         }
-
-        // 2. Download the PDF itself.
-        const pdfReq = await client({
-          method: "GET",
-          url: `${TIS_ORIGIN}${pdfHref}${DOC_SUFFIX}`,
-          responseType: "stream",
-        });
-        await saveStream(pdfReq.data, pdfPath);
       } catch (e) {
         // A session expiry is fatal for the whole run; let it propagate.
         if (e instanceof SessionExpiredError) throw e;

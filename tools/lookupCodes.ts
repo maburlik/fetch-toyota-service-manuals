@@ -32,9 +32,16 @@ const FIELD = {
 const SETTLE_MS = 2500;
 const SEARCH_SETTLE_MS = 4000;
 
-interface FoundDoc {
+export interface FoundDoc {
   type: string; // objType, e.g. "rm", "ewdappu", "bm"
   publicationNumber: string;
+}
+
+/** A division/model/year selection on the TIS repair-search form. */
+export interface VehicleSelector {
+  division: string;
+  model: string;
+  year: string;
 }
 
 /** Extract the `_pageLabel` value from a TIS portal URL, or "" if absent. */
@@ -120,23 +127,18 @@ function downloaderFlag(type: string, pub: string, year: string): string {
   }
 }
 
-async function main() {
-  const opts = commandLineArgs([
-    { name: "model", type: String },
-    { name: "year", type: String },
-    { name: "division", type: String, defaultValue: "TOYOTA" },
-    { name: "har", type: String },
-  ]);
-
-  if (!opts.model || !opts.year) {
-    console.error(
-      "Usage: ts-node tools/lookupCodes.ts --model <Model> --year <Year> [--division TOYOTA] [--har <har-path>]"
-    );
-    process.exit(2);
-  }
-
-  const cookieString = resolveCookieString(opts.har);
-
+/**
+ * Drive the TIS catalog for one vehicle and return every document it lists:
+ * select the division/model/year, run the repair search, then visit each
+ * document-type library tab and scrape the `publicationNumber`/`objType` off the
+ * result links. The returned list is de-duped by `objType:publicationNumber`.
+ *
+ * @throws if the session is invalid (expired or bumped by a concurrent login).
+ */
+export async function collectDocuments(
+  selector: VehicleSelector,
+  cookieString: string
+): Promise<FoundDoc[]> {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({
     storageState: {
@@ -160,9 +162,9 @@ async function main() {
       );
     }
 
-    await selectAndSettle(page, FIELD.division, opts.division);
-    await selectAndSettle(page, FIELD.model, opts.model);
-    await selectAndSettle(page, FIELD.year, opts.year);
+    await selectAndSettle(page, FIELD.division, selector.division);
+    await selectAndSettle(page, FIELD.model, selector.model);
+    await selectAndSettle(page, FIELD.year, selector.year);
 
     // Run the repair search (lands on the Repair Manual results tab).
     await Promise.all([
@@ -173,12 +175,9 @@ async function main() {
     ]);
     await page.waitForTimeout(SEARCH_SETTLE_MS);
 
-    const byType = new Map<string, Set<string>>();
+    const byKey = new Map<string, FoundDoc>();
     const collect = (docs: FoundDoc[]) =>
-      docs.forEach((d) => {
-        if (!byType.has(d.type)) byType.set(d.type, new Set());
-        byType.get(d.type)!.add(d.publicationNumber);
-      });
+      docs.forEach((d) => byKey.set(`${d.type}:${d.publicationNumber}`, d));
 
     collect(await docsOnPage(page));
 
@@ -210,30 +209,64 @@ async function main() {
       collect(await docsOnPage(page));
     }
 
-    console.log(`\nCodes for ${opts.division} ${opts.model} ${opts.year}:`);
-    if (!byType.size) {
-      console.log("  (no documents found -- check the model/year spelling)");
-    } else {
-      const flags: string[] = [];
-      for (const [type, set] of [...byType.entries()].sort()) {
-        for (const pub of [...set].sort()) {
-          const flag = downloaderFlag(type, pub, opts.year);
-          flags.push(flag.replace(/^-m /, ""));
-          console.log(
-            `  ${typeLabel(type).padEnd(28)} ${pub.padEnd(12)} ${flag}`
-          );
-        }
-      }
-      console.log(
-        `\nDownload all:\n  yarn start ${flags.map((f) => `-m ${f}`).join(" ")}`
-      );
-    }
+    return [...byKey.values()];
   } finally {
     await browser.close();
   }
 }
 
-main().catch((e) => {
-  console.error("ERROR:", e.message);
-  process.exit(1);
-});
+async function main() {
+  const opts = commandLineArgs([
+    { name: "model", type: String },
+    { name: "year", type: String },
+    { name: "division", type: String, defaultValue: "TOYOTA" },
+    { name: "har", type: String },
+  ]);
+
+  if (!opts.model || !opts.year) {
+    console.error(
+      "Usage: ts-node tools/lookupCodes.ts --model <Model> --year <Year> [--division TOYOTA] [--har <har-path>]"
+    );
+    process.exit(2);
+  }
+
+  const cookieString = resolveCookieString(opts.har);
+  const docs = await collectDocuments(
+    { division: opts.division, model: opts.model, year: opts.year },
+    cookieString
+  );
+
+  // Group by objType for a readable, stable listing.
+  const byType = new Map<string, Set<string>>();
+  for (const d of docs) {
+    if (!byType.has(d.type)) byType.set(d.type, new Set());
+    byType.get(d.type)!.add(d.publicationNumber);
+  }
+
+  console.log(`\nCodes for ${opts.division} ${opts.model} ${opts.year}:`);
+  if (!byType.size) {
+    console.log("  (no documents found -- check the model/year spelling)");
+    return;
+  }
+
+  const flags: string[] = [];
+  for (const [type, set] of [...byType.entries()].sort()) {
+    for (const pub of [...set].sort()) {
+      const flag = downloaderFlag(type, pub, opts.year);
+      flags.push(flag.replace(/^-m /, ""));
+      console.log(`  ${typeLabel(type).padEnd(28)} ${pub.padEnd(12)} ${flag}`);
+    }
+  }
+  console.log(
+    `\nDownload all:\n  yarn start ${flags.map((f) => `-m ${f}`).join(" ")}`
+  );
+}
+
+// Only run the CLI when invoked directly (e.g. `ts-node tools/lookupCodes.ts`),
+// not when imported for `collectDocuments` (e.g. by tools/downloadDocuments.ts).
+if (require.main === module) {
+  main().catch((e) => {
+    console.error("ERROR:", e.message);
+    process.exit(1);
+  });
+}

@@ -263,8 +263,10 @@ don't support it, and has no effect on `EM` (EWD) IDs.
 Older vehicles (e.g. a 2002 Highlander) use **legacy IDs that don't start with
 `RM`/`EM`/`BM`** — such as `OTH021U` (a repair/diagnostic manual) or `EWD470U`
 (a wiring diagram served under the generic `ewd/` path rather than the modern
-`ewdappu` one). For these, give the ID an explicit **`type:` prefix** so the
-tool knows how to fetch it:
+`ewdappu` one). They also tend to **split their service information across
+several standalone publications** beyond the repair manual and wiring diagram.
+For any ID, give it an explicit **`type:` prefix** so the tool knows how to
+fetch it:
 
 | Syntax | Meaning |
 | ------ | ------- |
@@ -272,16 +274,47 @@ tool knows how to fetch it:
 | `bm:<id>` | body manual under the `bm/` path |
 | `ewd:EWD470U` | older wiring diagram under the `ewd/` path |
 | `em:EM36Q0U` | modern EWD (the `ewdappu` format) |
+| `atm:RM836U` | automatic-transmission manual under the `atm/` path |
+| `cr:BRM103U` | collision/body repair manual under the `cr/` path |
+| `ncf:NCF214U` | new car features under the `ncf/` path |
+| `whr:RM1022Ea` | wire-harness repair manual under the `whr/` path |
 
 ```bash
-yarn start -m rm:OTH021U -m ewd:EWD470U
+yarn start -m rm:OTH021U -m ewd:EWD470U -m atm:RM836U \
+  -m cr:BRM103U -m ncf:NCF214U -m whr:RM1022Ea
 ```
+
+`lookup-codes` (above) lists **every** publication a vehicle has, including these
+extra ones — always check it so you don't miss the transmission, body, or
+wire-harness manuals. Note that some legacy IDs are **case-sensitive** (e.g.
+`RM1022Ea` has a lowercase revision suffix); pass them exactly as `lookup-codes`
+prints them.
 
 The tool auto-detects whether each manual is the **modern HTML format** (pages
 rendered to PDF with Playwright) or the **legacy format** (each page is a thin
 xhtml wrapper around a real PDF, downloaded directly over HTTP — no browser),
 and handles both. IDs that already start with `RM`/`EM`/`BM` don't need a
 prefix.
+
+### TSBs, recalls, and other bulletins (`download-documents`)
+
+`lookup-codes` also surfaces a vehicle's **standalone documents** — Service
+Bulletins (TSBs), recall/campaign info (`crib`), diagnostic analysis info
+(`ai`), Quick Training Guides (`qtg`), and more. These are **not** multi-page
+manuals (they have no ToC); each is a single PDF. The main `yarn start`
+downloader only handles manuals, so fetch these with the dedicated tool:
+
+```bash
+# Downloads every standalone document for the vehicle into
+# ./manuals/_documents/<objType>/<publicationNumber>.pdf
+yarn download-documents --model Highlander --year 2002
+# (reads TIS_COOKIE from the environment, or pass --har <path>)
+```
+
+It reuses the same catalog lookup, automatically **skips** the multi-page manual
+publications (download those with `yarn start`), and reports
+`saved/skipped/no-pdf/failed` counts. Re-running is safe — already-downloaded
+PDFs are skipped.
 
 ---
 
