@@ -12,17 +12,30 @@ import { SessionExpiredError } from "./api/session";
 import dayjs from "dayjs";
 
 export interface Manual {
-  // Path prefix / downloader selector. "em" -> modern EWD (ewdappu); "rm"/"bm"
-  // -> repair/body manual; "ewd" -> older wiring diagram served under the
-  // generic "ewd/" path. "rm"/"bm"/"ewd" share the generic toc.xml format.
-  type: "em" | "rm" | "bm" | "ewd";
+  // Path prefix / downloader selector. "em" -> modern EWD (ewdappu); all other
+  // types share the generic "<type>/<id>/toc.xml" format and route through the
+  // generic/legacy downloader: "rm" -> repair manual, "bm" -> body manual,
+  // "ewd" -> older wiring diagram, "atm" -> automatic transmission manual,
+  // "cr" -> collision/body repair manual, "ncf" -> new car features,
+  // "whr" -> wire harness repair manual. The last four are common on older
+  // vehicles, which split content across several standalone publications.
+  type: "em" | "rm" | "bm" | "ewd" | "atm" | "cr" | "ncf" | "whr";
   id: string; // e.g. EM1234
   year?: number; // e.g. 2019
   raw: string; // e.g. EM1234@2019
 }
 
 /** All accepted explicit `-m <type>:<id>` type prefixes. */
-const MANUAL_TYPES = ["rm", "bm", "em", "ewd"] as const;
+const MANUAL_TYPES = [
+  "rm",
+  "bm",
+  "em",
+  "ewd",
+  "atm",
+  "cr",
+  "ncf",
+  "whr",
+] as const;
 
 /**
  * Infer a manual type from an ID's leading characters, for IDs given without an
@@ -47,7 +60,12 @@ async function run({ manual, email, password, headed, cookieString }: CLIArgs) {
   const ewds: Manual[] = [];
   const genericManuals: Manual[] = [];
 
-  const rawManualIds = new Set(manual.map((m) => m.toUpperCase().trim()));
+  // Preserve the user-supplied case of each spec: most publication IDs are
+  // all-uppercase, but some legacy ones carry a case-sensitive revision suffix
+  // (e.g. the wire-harness manual "RM1022Ea"), and Toyota's endpoints are
+  // case-sensitive. Type-prefix matching and prefix autodetection normalise
+  // case themselves below, so no blanket upper-casing is needed here.
+  const rawManualIds = new Set(manual.map((m) => m.trim()));
 
   console.log("Parsing manual IDs...");
   rawManualIds.forEach((m) => {
@@ -98,9 +116,17 @@ async function run({ manual, email, password, headed, cookieString }: CLIArgs) {
         genericManuals.push({ type: "ewd", id, year, raw });
         return;
       }
+      case "atm":
+      case "cr":
+      case "ncf":
+      case "whr": {
+        genericManuals.push({ type, id, year, raw });
+        return;
+      }
       default: {
         console.error(
-          `Invalid manual ${m}: prefix the ID with a type (rm:/bm:/em:/ewd:) ` +
+          `Invalid manual ${m}: prefix the ID with a type ` +
+            `(rm:/bm:/em:/ewd:/atm:/cr:/ncf:/whr:) ` +
             `or use an ID starting with EM, RM, or BM.`
         );
         process.exit(1);
