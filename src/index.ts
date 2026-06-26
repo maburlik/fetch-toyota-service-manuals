@@ -42,15 +42,20 @@ const MANUAL_TYPES = [
  * Infer a manual type from an ID's leading characters, for IDs given without an
  * explicit `type:` prefix. Returns undefined for unrecognized prefixes (older
  * IDs like OTH021U / EWD470U must be given an explicit type).
+ *
+ * Note: `BM####` body/collision manuals are now served under the `cr/` path
+ * (TIS moved them from `bm/`), so a bare `BM` id autodetects to `cr`. The
+ * explicit `bm:` prefix remains available as a fallback for any manual still on
+ * the old path.
  */
-function autodetectType(id: string): "em" | "rm" | "bm" | undefined {
+function autodetectType(id: string): "em" | "rm" | "cr" | undefined {
   switch (id.slice(0, 2).toUpperCase()) {
     case "EM":
       return "em";
     case "RM":
       return "rm";
     case "BM":
-      return "bm";
+      return "cr";
     default:
       return undefined;
   }
